@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## Version 0.11.39
+
+- Switched `ever-block` dependency to `open-ever/ever-block` pinned at tag `1.11.23`
+- Switched `ever-tl` dependency to `open-ever/ever-tl` pinned at tag `0.4.34`
+- Switched `lockfree` dependency to `open-ever/lockfree` pinned at tag `v0.5.2`
+- Switched `common` submodule to `open-ever/common`
+
 ## Version 0.11.38
 
 - Fix build issues

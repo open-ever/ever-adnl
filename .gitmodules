@@ -1,3 +1,4 @@
 [submodule "common"]
 	path = common
-	url = https://github.com/everx-labs/common.git
+	url = https://github.com/open-ever/common
+	branch = main
