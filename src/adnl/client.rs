@@ -31,7 +31,9 @@ pub struct AdnlClientConfigJson {
     client_key: Option<KeyOptionJson>,
     server_address: String,
     server_key: KeyOptionJson,
-    timeouts: Option<Timeouts>
+    timeouts: Option<Timeouts>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_packet_size: Option<usize>
 }
 
 impl AdnlClientConfigJson {
@@ -40,7 +42,8 @@ impl AdnlClientConfigJson {
             client_key: None,
             server_address: server.to_string(),
             server_key,
-            timeouts
+            timeouts,
+            max_packet_size: None
         }
     }
 }
@@ -50,7 +53,8 @@ pub struct AdnlClientConfig {
     client_key: Option<Arc<dyn KeyOption>>,
     server_address: SocketAddr,
     server_key: Arc<dyn KeyOption>,
-    timeouts: Timeouts
+    timeouts: Timeouts,
+    max_packet_size: Option<usize>
 }
 
 impl AdnlClientConfig {
@@ -60,12 +64,18 @@ impl AdnlClientConfig {
         let json_config: AdnlClientConfigJson = serde_json::from_str(json)?;
         Self::from_json_config(json_config)
     }
-    
+
     /// Costructs new configuration from JSON data
     pub fn from_json_config(
         json_config: AdnlClientConfigJson
     ) -> Result<(Option<AdnlClientConfigJson>, Self)> {
         let server_key = Ed25519KeyOption::from_public_key_json(&json_config.server_key)?;
+        let max_packet_size = json_config.max_packet_size;
+
+        if let Some(size) = max_packet_size.filter(|size| *size < 64) {
+            fail!("Max ADNL packet size {} is less than packet header size", size)
+        }
+
         let mut result_config = None;
         let client_key = if let Some(key) = &json_config.client_key {
             Some(Ed25519KeyOption::from_private_key_json(key)?)
@@ -76,7 +86,8 @@ impl AdnlClientConfig {
                     client_key: Some(json),
                     server_address: json_config.server_address.clone(),
                     server_key: json_config.server_key,
-                    timeouts: json_config.timeouts.clone()
+                    timeouts: json_config.timeouts.clone(),
+                    max_packet_size: json_config.max_packet_size
                 }
             );
             Some(key)
@@ -89,7 +100,8 @@ impl AdnlClientConfig {
                 timeouts
             } else {
                 Timeouts::default()
-            }
+            },
+            max_packet_size
         };
         Ok((result_config, ret))
     }
@@ -97,6 +109,11 @@ impl AdnlClientConfig {
     /// Get timeouts
     pub fn timeouts(&self) -> &Timeouts {
         &self.timeouts
+    }
+
+    /// Get limit of incoming packet size, `None` is unlimited
+    pub fn max_packet_size(&self) -> Option<usize> {
+        self.max_packet_size
     }
 
 }
@@ -111,17 +128,17 @@ impl AdnlClient {
 
     /// Connect to server
     pub async fn connect(config: &AdnlClientConfig) -> Result<Self> {
-
         let socket = socket2::Socket::new(
-            socket2::Domain::ipv4(), 
-            socket2::Type::stream(), 
+            socket2::Domain::ipv4(),
+            socket2::Type::stream(),
             Some(socket2::Protocol::tcp())
         )?;
+
         socket.set_reuse_address(true)?;
         socket.set_linger(Some(Duration::from_secs(0)))?;
         //socket.bind(&"0.0.0.0:0".parse::<SocketAddr>()?.into())?;
         socket.connect_timeout(
-            &config.server_address.into(), 
+            &config.server_address.into(),
             config.timeouts.write()
         )?;
 
@@ -130,8 +147,8 @@ impl AdnlClient {
             config.timeouts()
         );
         Ok(
-            Self { 
-                crypto: Self::send_init_packet(&mut stream, config).await?, 
+            Self {
+                crypto: Self::send_init_packet(&mut stream, config).await?,
                 stream
             }
         )
@@ -143,8 +160,8 @@ impl AdnlClient {
         let now = SystemTime::now();
         let value = rand::thread_rng().gen();
         let query = TLObject::new(
-            AdnlPing { 
-                value 
+            AdnlPing {
+                value
             }
         );
         #[cfg(feature = "telemetry")]
@@ -179,29 +196,30 @@ impl AdnlClient {
             }
         }
         match deserialize_typed(buf)? {
-            AdnlMessage::Adnl_Message_Answer(answer) => 
+            AdnlMessage::Adnl_Message_Answer(answer) =>
                 if &query_id == answer.query_id.as_slice() {
                     deserialize_boxed(&answer.answer)
                 } else {
                     fail!("Query ID mismatch {:?} vs {:?}", query.object, answer)
                 },
             answer => fail!("Unexpected answer to query {:?}: {:?}", query.object, answer)
-        } 
+        }
     }
 
     async fn send_init_packet(
-        stream: &mut AdnlStream, 
+        stream: &mut AdnlStream,
         config: &AdnlClientConfig
     ) -> Result<AdnlStreamCrypto> {
         let mut buf = vec![0u8; 160];
         rand::thread_rng().fill(buf.as_mut_slice());
         let nonce = buf.as_slice().try_into()?;
-        let ret = AdnlStreamCrypto::with_nonce_as_client(nonce);
+        let ret = AdnlStreamCrypto::with_nonce_as_client(nonce)
+            .with_max_packet_size(config.max_packet_size);
         if let Some(client_key) = &config.client_key {
             AdnlHandshake::build_packet(&mut buf, client_key, &config.server_key, None)?
         } else {
             AdnlHandshake::build_packet(
-                &mut buf, 
+                &mut buf,
                 &Ed25519KeyOption::generate()?,
                 &config.server_key,
                 None

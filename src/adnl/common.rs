@@ -440,7 +440,8 @@ impl AdnlStream {
 /// ADNL stream cryptographic context
 pub struct AdnlStreamCrypto {
     cipher_recv: aes_ctr::Aes256Ctr,
-    cipher_send: aes_ctr::Aes256Ctr
+    cipher_send: aes_ctr::Aes256Ctr,
+    max_packet_size: Option<usize>
 }
 
 impl AdnlStreamCrypto {
@@ -451,7 +452,8 @@ impl AdnlStreamCrypto {
         /* Do not clear nonce because it will be encrypted inplace afterwards */
         Self {
             cipher_recv: AdnlCryptoUtils::build_cipher_unsecure(nonce,  0..32, 64..80),
-            cipher_send: AdnlCryptoUtils::build_cipher_unsecure(nonce, 32..64, 80..96)
+            cipher_send: AdnlCryptoUtils::build_cipher_unsecure(nonce, 32..64, 80..96),
+            max_packet_size: None
         }
     }
 
@@ -461,10 +463,17 @@ impl AdnlStreamCrypto {
         /* Clear nonce */
         let ret = Self {
             cipher_recv: AdnlCryptoUtils::build_cipher_unsecure(nonce, 32..64, 80..96),
-            cipher_send: AdnlCryptoUtils::build_cipher_unsecure(nonce,  0..32, 64..80)
+            cipher_send: AdnlCryptoUtils::build_cipher_unsecure(nonce,  0..32, 64..80),
+            max_packet_size: None
         };
         nonce.iter_mut().for_each(|a| *a = 0);
         ret
+    }
+
+    /// Set limit of incoming packet size, checked before allocating the buffer, `None` is unlimited
+    pub fn with_max_packet_size(mut self, max_packet_size: Option<usize>) -> Self {
+        self.max_packet_size = max_packet_size;
+        self
     }
 
     /// Send data in-place
@@ -489,6 +498,11 @@ impl AdnlStreamCrypto {
         let length = u32::from_le_bytes([ buf[0], buf[1], buf[2], buf[3] ]) as usize;
         if length < 64 {
             fail!("Too small size for ANDL packet: {}", length);
+        }
+        if let Some(max_packet_size) = self.max_packet_size {
+            if length > max_packet_size {
+                fail!("Too big size for ADNL packet: {}", length);
+            }
         }
         stream.read(buf, length).await?;
         self.cipher_recv.apply_keystream(&mut buf[..length]);        

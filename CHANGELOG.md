@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## Version 0.11.40
+
+- Added optional limit of incoming ADNL TCP packet size: `max_packet_size` in
+client config and `AdnlServerConfig::with_max_packet_size` for server
+
 ## Version 0.11.39
 
 - Switched `ever-block` dependency to `open-ever/ever-block` pinned at tag `1.11.23`
@@ -196,7 +201,7 @@ All notable changes to this project will be documented in this file.
 
 ## Version 0.7.26
 
-- Code clean up 
+- Code clean up
 
 ## Version 0.7.25
 

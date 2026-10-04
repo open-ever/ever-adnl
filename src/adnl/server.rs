@@ -63,7 +63,8 @@ pub struct AdnlServerConfig {
     clients: Arc<Option<lockfree::map::Map<[u8; 32], u8>>>,
     server_key: Arc<lockfree::map::Map<Arc<KeyId>, Arc<dyn KeyOption>>>,
     server_id: Arc<KeyId>,
-    timeouts: Timeouts
+    timeouts: Timeouts,
+    max_packet_size: Option<usize>
 }
 
 impl AdnlServerConfig {
@@ -103,9 +104,16 @@ impl AdnlServerConfig {
                 timeouts.clone()
             } else {
                 Timeouts::default()
-            }
+            },
+            max_packet_size: None
         };
         Ok(ret)
+    }
+
+    /// Set limit of incoming packet size, `None` is unlimited
+    pub fn with_max_packet_size(mut self, max_packet_size: Option<usize>) -> Self {
+        self.max_packet_size = max_packet_size;
+        self
     }
 
     /// Get timeouts
@@ -133,9 +141,13 @@ impl AdnlServerThread {
         let stream = AdnlStream::from_stream_with_timeouts(stream, config.timeouts());
         let clients = config.clients.clone();
         let key = config.server_key.clone();
+        let max_packet_size = config.max_packet_size;
         tokio::spawn(
             async move {
-                if let Err(e) = AdnlServerThread::run(stream, key, clients, subscribers).await {
+                let result = AdnlServerThread::run(
+                    stream, key, clients, max_packet_size, subscribers
+                ).await;
+                if let Err(e) = result {
                     log::warn!(target: TARGET, "ADNL server ERROR --> {}", e);
                     return;
                 }
@@ -148,6 +160,7 @@ impl AdnlServerThread {
         mut stream: AdnlStream,
         key: Arc<lockfree::map::Map<Arc<KeyId>, Arc<dyn KeyOption>>>,
         clients: Arc<Option<lockfree::map::Map<[u8; 32], u8>>>,
+        max_packet_size: Option<usize>,
         subscribers: Arc<Vec<Arc<dyn Subscriber>>>
     ) -> Result<()> {
         let mut buf = Vec::with_capacity(256);
@@ -161,7 +174,8 @@ impl AdnlServerThread {
                 fail!("Message from unknown client {}", base64_encode(&buf[32..64]))
             }
         }
-        let (mut crypto, peers) = Self::parse_init_packet(&key, &mut buf)?;
+        let (crypto, peers) = Self::parse_init_packet(&key, &mut buf)?;
+        let mut crypto = crypto.with_max_packet_size(max_packet_size);
         buf.truncate(0);
         crypto.send(&mut stream, &mut buf).await?;
         loop {
