@@ -15,7 +15,7 @@ use aes_ctr::cipher::stream::{NewStreamCipher, SyncStreamCipher};
 use core::ops::Range;
 use rand::Rng;
 use std::{
-    fmt::Debug, hash::Hash, sync::{Arc, atomic::{AtomicU64, AtomicUsize, Ordering}},
+    fmt::Debug, hash::Hash, pin::Pin, sync::{Arc, atomic::{AtomicU64, AtomicUsize, Ordering}},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH}
 };
 #[cfg(any(feature = "client", feature = "node", feature = "server"))]
@@ -404,8 +404,8 @@ impl Subscriber for AdnlPingSubscriber {
     }
 }
 
-/// ADNL TCP stream                      
-pub struct AdnlStream(tokio_io_timeout::TimeoutStream<tokio::net::TcpStream>);
+/// ADNL TCP stream
+pub struct AdnlStream(Pin<Box<tokio_io_timeout::TimeoutStream<tokio::net::TcpStream>>>);
 
 impl AdnlStream {
     /// Constructor
@@ -413,25 +413,22 @@ impl AdnlStream {
         let mut stream = tokio_io_timeout::TimeoutStream::new(stream);
         stream.set_write_timeout(Some(timeouts.write()));
         stream.set_read_timeout(Some(timeouts.read()));
-        Self(stream)
+        Self(Box::pin(stream))
     }
     /// Read from stream
     pub async fn read(&mut self, buf: &mut Vec<u8>, len: usize) -> Result<()> {
         buf.resize(len, 0);
-        let Self(stream) = self;
-        stream.get_mut().read_exact(&mut buf[..]).await?;
+        self.0.read_exact(&mut buf[..]).await?;
         Ok(())
     }
     /// Shutdown stream
     pub async fn shutdown(&mut self) -> Result<()> {
-        let Self(stream) = self;       
-        stream.get_mut().shutdown().await?;
+        self.0.shutdown().await?;
         Ok(())
     }
     /// Write to stream
     pub async fn write(&mut self, buf: &mut Vec<u8>) -> Result<()> {
-        let Self(stream) = self;
-        stream.get_mut().write_all(&buf[..]).await?;
+        self.0.write_all(&buf[..]).await?;
         buf.truncate(0);
         Ok(())
     }

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## Version 0.11.41
+
+- Fixed `AdnlClient::connect` registering a blocking socket in tokio.
+- Fixed ADNL TCP read and write timeouts not being applied.
+
 ## Version 0.11.40
 
 - Added optional limit of incoming ADNL TCP packet size: `max_packet_size` in

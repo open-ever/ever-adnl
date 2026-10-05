@@ -15,7 +15,7 @@ use crate::common::{
     AdnlHandshake, AdnlStream, AdnlStreamCrypto, Query, TaggedTlObject, Timeouts
 };
 use rand::Rng;
-use std::{convert::TryInto, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
+use std::{convert::TryInto, net::SocketAddr, sync::Arc, time::SystemTime};
 use ton_api::{deserialize_boxed, deserialize_typed, serialize_boxed,
     ton::{
         TLObject, adnl::{Message as AdnlMessage, Pong as AdnlPongBoxed},
@@ -24,7 +24,7 @@ use ton_api::{deserialize_boxed, deserialize_typed, serialize_boxed,
 };
 #[cfg(feature = "telemetry")]
 use ton_api::{BoxedSerialize, ConstructorNumber};
-use ever_block::{fail, Ed25519KeyOption, KeyOption, KeyOptionJson, Result};
+use ever_block::{error, fail, Ed25519KeyOption, KeyOption, KeyOptionJson, Result};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct AdnlClientConfigJson {
@@ -128,24 +128,23 @@ impl AdnlClient {
 
     /// Connect to server
     pub async fn connect(config: &AdnlClientConfig) -> Result<Self> {
-        let socket = socket2::Socket::new(
-            socket2::Domain::ipv4(),
-            socket2::Type::stream(),
-            Some(socket2::Protocol::tcp())
-        )?;
+        let socket = if config.server_address.is_ipv4() {
+            tokio::net::TcpSocket::new_v4()?
+        } else {
+            tokio::net::TcpSocket::new_v6()?
+        };
 
-        socket.set_reuse_address(true)?;
-        socket.set_linger(Some(Duration::from_secs(0)))?;
-        //socket.bind(&"0.0.0.0:0".parse::<SocketAddr>()?.into())?;
-        socket.connect_timeout(
-            &config.server_address.into(),
-            config.timeouts.write()
-        )?;
+        socket.set_reuseaddr(true)?;
+        socket.set_zero_linger()?;
 
-        let mut stream = AdnlStream::from_stream_with_timeouts(
-            tokio::net::TcpStream::from_std(socket.into_tcp_stream())?,
-            config.timeouts()
-        );
+        let stream = tokio::time::timeout(
+            config.timeouts.write(),
+            socket.connect(config.server_address)
+        ).await.map_err(
+            |_| error!("Timeout while connecting to {}", config.server_address)
+        )??;
+
+        let mut stream = AdnlStream::from_stream_with_timeouts(stream, config.timeouts());
         Ok(
             Self {
                 crypto: Self::send_init_packet(&mut stream, config).await?,
