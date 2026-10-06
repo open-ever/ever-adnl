@@ -58,6 +58,39 @@ pub struct AdnlClientConfig {
 }
 
 impl AdnlClientConfig {
+    /// Constructs configuration with default timeouts and unlimited packet size,
+    /// a new client key is generated for each connection unless it is set
+    pub fn new(server_address: SocketAddr, server_key: Arc<dyn KeyOption>) -> Self {
+        AdnlClientConfig {
+            client_key: None,
+            server_address,
+            server_key,
+            timeouts: Timeouts::default(),
+            max_packet_size: None
+        }
+    }
+
+    /// Set client key
+    pub fn with_client_key(mut self, client_key: Arc<dyn KeyOption>) -> Self {
+        self.client_key = Some(client_key);
+        self
+    }
+
+    /// Set timeouts
+    pub fn with_timeouts(mut self, timeouts: Timeouts) -> Self {
+        self.timeouts = timeouts;
+        self
+    }
+
+    /// Set limit of incoming packet size, `None` is unlimited
+    pub fn with_max_packet_size(mut self, max_packet_size: Option<usize>) -> Result<Self> {
+        if let Some(size) = max_packet_size.filter(|size| *size < 64) {
+            fail!("Max ADNL packet size {} is less than packet header size", size)
+        }
+
+        self.max_packet_size = max_packet_size;
+        Ok(self)
+    }
 
     /// Costructs new configuration from JSON string
     pub fn from_json(json: &str) -> Result<(Option<AdnlClientConfigJson>, Self)> {
@@ -70,15 +103,10 @@ impl AdnlClientConfig {
         json_config: AdnlClientConfigJson
     ) -> Result<(Option<AdnlClientConfigJson>, Self)> {
         let server_key = Ed25519KeyOption::from_public_key_json(&json_config.server_key)?;
-        let max_packet_size = json_config.max_packet_size;
-
-        if let Some(size) = max_packet_size.filter(|size| *size < 64) {
-            fail!("Max ADNL packet size {} is less than packet header size", size)
-        }
-
         let mut result_config = None;
+
         let client_key = if let Some(key) = &json_config.client_key {
-            Some(Ed25519KeyOption::from_private_key_json(key)?)
+            Ed25519KeyOption::from_private_key_json(key)?
         } else {
             let (json, key) = Ed25519KeyOption::generate_with_json()?;
             result_config = Some(
@@ -90,19 +118,14 @@ impl AdnlClientConfig {
                     max_packet_size: json_config.max_packet_size
                 }
             );
-            Some(key)
+            key
         };
-        let ret = AdnlClientConfig {
-            client_key,
-            server_address: json_config.server_address.parse()?,
-            server_key,
-            timeouts: if let Some(timeouts) = json_config.timeouts {
-                timeouts
-            } else {
-                Timeouts::default()
-            },
-            max_packet_size
-        };
+
+        let ret = AdnlClientConfig::new(json_config.server_address.parse()?, server_key)
+            .with_client_key(client_key)
+            .with_timeouts(json_config.timeouts.unwrap_or_default())
+            .with_max_packet_size(json_config.max_packet_size)?;
+
         Ok((result_config, ret))
     }
 

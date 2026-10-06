@@ -890,10 +890,17 @@ pub struct Timeouts {
 
 impl Timeouts {
     pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
+
+    /// Constructor
+    pub fn new(read: Duration, write: Duration) -> Self {
+        Self { read, write }
+    }
+
     /// Read timeout
     pub fn read(&self) -> Duration {
         self.read
     }
+
     /// Write timeout
     pub fn write(&self) -> Duration {
         self.write

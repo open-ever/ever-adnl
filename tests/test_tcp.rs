@@ -24,7 +24,9 @@ use std::time::Instant;
 #[cfg(feature = "server")]
 use std::{thread::sleep, time::Duration};    
 #[cfg(all(feature = "client", feature = "server"))]
-use ever_block::Result;
+use adnl::common::Timeouts;
+#[cfg(all(feature = "client", feature = "server"))]
+use ever_block::{Ed25519KeyOption, Result};
 
 #[cfg(feature = "client")]
 const ADNL_CLIENT_CONFIG: &str = "{
@@ -115,6 +117,50 @@ fn tcp_session() {
             server.shutdown().await;
             // Ensure server socket close
             sleep(Duration::from_millis(200));
+        }
+    )
+}
+
+#[cfg(all(feature = "client", feature = "server"))]
+#[test]
+fn tcp_session_without_json() {
+    let rt = init_test();
+
+    let address = "127.0.0.1:4925".parse().unwrap();
+    let server_key = Ed25519KeyOption::generate().unwrap();
+    let client_key = Ed25519KeyOption::generate().unwrap();
+    let timeouts = Timeouts::new(Duration::from_secs(5), Duration::from_secs(5));
+
+    let server_config = AdnlServerConfig::new(address, server_key.clone())
+        .with_clients(&[client_key.clone()]).unwrap()
+        .with_timeouts(timeouts.clone());
+
+    let server_key = Ed25519KeyOption::from_public_key(
+        server_key.pub_key().unwrap().try_into().unwrap()
+    );
+
+    let client_config = AdnlClientConfig::new(address, server_key.clone())
+        .with_client_key(client_key)
+        .with_timeouts(timeouts)
+        .with_max_packet_size(Some(1024)).unwrap();
+
+    // Generated client key is not in the server list
+    let unknown_config = AdnlClientConfig::new(address, server_key.clone());
+
+    assert!(AdnlClientConfig::new(address, server_key).with_max_packet_size(Some(32)).is_err());
+
+    rt.block_on(
+        async move {
+            let server = AdnlServer::listen(server_config, vec![]).await.unwrap();
+            let mut client = AdnlClient::connect(&client_config).await.unwrap();
+
+            request_server(&mut client).await.unwrap();
+
+            let mut unknown = AdnlClient::connect(&unknown_config).await.unwrap();
+            assert!(request_server(&mut unknown).await.is_err());
+
+            client.shutdown().await.unwrap();
+            server.shutdown().await;
         }
     )
 }

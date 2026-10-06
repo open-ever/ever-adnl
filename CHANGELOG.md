@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Version 0.11.42
+
+- Added configuration without JSON: `AdnlClientConfig::new`,
+`AdnlServerConfig::new` with `with_*` setters and `Timeouts::new`.
+- ADNL TCP server keeps allowed clients in a `HashSet` instead of a lock-free map.
+
 ## Version 0.11.41
 
 - Fixed `AdnlClient::connect` registering a blocking socket in tokio.

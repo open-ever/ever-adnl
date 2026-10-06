@@ -18,7 +18,7 @@ use crate::{
         Query, Subscriber, TARGET, Timeouts
     }
 };
-use std::{convert::TryInto, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashSet, convert::TryInto, net::SocketAddr, sync::Arc, time::Duration};
 use stream_cancel::StreamExt;
 use futures::prelude::*;
 use ton_api::{deserialize_boxed, serialize_boxed_inplace, {ton::adnl::Message as AdnlMessage}};
@@ -60,7 +60,7 @@ impl AdnlServerConfigJson {
 /// ADNL server configuration
 pub struct AdnlServerConfig {
     address: SocketAddr,
-    clients: Arc<Option<lockfree::map::Map<[u8; 32], u8>>>,
+    clients: Arc<Option<HashSet<[u8; 32]>>>,
     server_key: Arc<lockfree::map::Map<Arc<KeyId>, Arc<dyn KeyOption>>>,
     server_id: Arc<KeyId>,
     timeouts: Timeouts,
@@ -78,36 +78,59 @@ impl AdnlServerConfig {
     /// Construct from JSON config structure
     pub fn from_json_config(json_config: &AdnlServerConfigJson) -> Result<Self> {
         let key = Ed25519KeyOption::from_private_key_json(&json_config.server_key)?;
-        let server_key = lockfree::map::Map::new();
-        let server_id = key.id().clone();
-        server_key.insert(key.id().clone(), key);
-        let clients = match &json_config.clients {
-            AdnlServerClients::Any => None,
-            AdnlServerClients::List(list) => {
-                let clients = lockfree::map::Map::new();
-                for key in list.iter() {
-                    let key = Ed25519KeyOption::from_public_key_json(key)?;
-                    let key = key.pub_key()?;
-                    if clients.insert(key.try_into()?, 0).is_some() {
-                        fail!("Duplicated client key {} in server config", base64_encode(key))
-                    }
-                }
-                Some(clients)
-            }
-        };
-        let ret = AdnlServerConfig {
-            address: json_config.address.parse()?,
-            clients: Arc::new(clients),
-            server_key: Arc::new(server_key),
-            server_id,
-            timeouts: if let Some(timeouts) = &json_config.timeouts {
-                timeouts.clone()
-            } else {
-                Timeouts::default()
-            },
-            max_packet_size: None
-        };
+
+        let mut ret = AdnlServerConfig::new(json_config.address.parse()?, key)
+            .with_timeouts(json_config.timeouts.clone().unwrap_or_default());
+
+        if let AdnlServerClients::List(list) = &json_config.clients {
+            let clients = list.iter()
+                .map(Ed25519KeyOption::from_public_key_json)
+                .collect::<Result<Vec<_>>>()?;
+
+            ret = ret.with_clients(&clients)?;
+        }
+
         Ok(ret)
+    }
+
+    /// Constructs configuration accepting any client, with default timeouts and
+    /// unlimited packet size, server key must contain the private key
+    pub fn new(address: SocketAddr, server_key: Arc<dyn KeyOption>) -> Self {
+        let server_id = server_key.id().clone();
+        let keys = lockfree::map::Map::new();
+
+        keys.insert(server_id.clone(), server_key);
+
+        AdnlServerConfig {
+            address,
+            clients: Arc::new(None),
+            server_key: Arc::new(keys),
+            server_id,
+            timeouts: Timeouts::default(),
+            max_packet_size: None
+        }
+    }
+
+    /// Accept only clients with given public keys
+    pub fn with_clients(mut self, client_keys: &[Arc<dyn KeyOption>]) -> Result<Self> {
+        let mut clients = HashSet::new();
+
+        for key in client_keys {
+            let key = key.pub_key()?;
+
+            if !clients.insert(key.try_into()?) {
+                fail!("Duplicated client key {} in server config", base64_encode(key))
+            }
+        }
+
+        self.clients = Arc::new(Some(clients));
+        Ok(self)
+    }
+
+    /// Set timeouts
+    pub fn with_timeouts(mut self, timeouts: Timeouts) -> Self {
+        self.timeouts = timeouts;
+        self
     }
 
     /// Set limit of incoming packet size, `None` is unlimited
@@ -159,7 +182,7 @@ impl AdnlServerThread {
     async fn run(
         mut stream: AdnlStream,
         key: Arc<lockfree::map::Map<Arc<KeyId>, Arc<dyn KeyOption>>>,
-        clients: Arc<Option<lockfree::map::Map<[u8; 32], u8>>>,
+        clients: Arc<Option<HashSet<[u8; 32]>>>,
         max_packet_size: Option<usize>,
         subscribers: Arc<Vec<Arc<dyn Subscriber>>>
     ) -> Result<()> {
@@ -170,7 +193,7 @@ impl AdnlServerThread {
             if buf.len() < 64 {
                 fail!("ADNL init message is too short ({})", buf.len())
             }
-            if !clients.iter().any(|client| &buf[32..64] == client.key()) {
+            if !clients.contains(&buf[32..64]) {
                 fail!("Message from unknown client {}", base64_encode(&buf[32..64]))
             }
         }
