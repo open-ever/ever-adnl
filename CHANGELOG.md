@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## Version 0.11.43
+
+- `AdnlClient::connect` waits for the server to confirm the handshake, so a wrong
+server key or a client that is not allowed fails on connect instead of the first query.
+
 ## Version 0.11.42
 
 - Added configuration without JSON: `AdnlClientConfig::new`,

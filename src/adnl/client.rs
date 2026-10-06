@@ -235,7 +235,7 @@ impl AdnlClient {
         let mut buf = vec![0u8; 160];
         rand::thread_rng().fill(buf.as_mut_slice());
         let nonce = buf.as_slice().try_into()?;
-        let ret = AdnlStreamCrypto::with_nonce_as_client(nonce)
+        let mut ret = AdnlStreamCrypto::with_nonce_as_client(nonce)
             .with_max_packet_size(config.max_packet_size);
         if let Some(client_key) = &config.client_key {
             AdnlHandshake::build_packet(&mut buf, client_key, &config.server_key, None)?
@@ -248,6 +248,15 @@ impl AdnlClient {
             )?
         }
         stream.write(&mut buf).await?;
+
+        ret.receive(&mut buf, stream).await.map_err(
+            |e| error!("ADNL handshake is not confirmed: {}", e)
+        )?;
+
+        if !buf.is_empty() {
+            fail!("Unexpected answer to ADNL handshake")
+        }
+
         Ok(ret)
     }
 

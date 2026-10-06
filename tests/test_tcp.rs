@@ -146,6 +146,7 @@ fn tcp_session_without_json() {
 
     // Generated client key is not in the server list
     let unknown_config = AdnlClientConfig::new(address, server_key.clone());
+    let wrong_key_config = AdnlClientConfig::new(address, Ed25519KeyOption::generate().unwrap());
 
     assert!(AdnlClientConfig::new(address, server_key).with_max_packet_size(Some(32)).is_err());
 
@@ -156,8 +157,8 @@ fn tcp_session_without_json() {
 
             request_server(&mut client).await.unwrap();
 
-            let mut unknown = AdnlClient::connect(&unknown_config).await.unwrap();
-            assert!(request_server(&mut unknown).await.is_err());
+            assert!(AdnlClient::connect(&unknown_config).await.is_err());
+            assert!(AdnlClient::connect(&wrong_key_config).await.is_err());
 
             client.shutdown().await.unwrap();
             server.shutdown().await;
