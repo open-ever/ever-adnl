@@ -3,7 +3,7 @@ build = './common/build/build.rs'
 description = 'ADNL stack library'
 edition = '2021'
 name = 'adnl'
-version = '0.11.44'
+version = '0.11.45'
 
 [dependencies]
 aes-ctr = '0.6.0'
@@ -29,7 +29,7 @@ zstd = { features = [ 'pkg-config' ], version = '0.11' }
 ever_block = { features = [ 'export_key' ], git = 'https://github.com/open-ever/ever-block.git', tag = '1.11.23' }
 lockfree = { git = 'https://github.com/open-ever/lockfree.git', tag = 'v0.5.2' }
 raptor-q = { path = 'raptorq', version = '1.2.1' }
-ton_api = { git = 'https://github.com/open-ever/ever-tl.git', package = 'ton_api', tag = '0.4.34' }
+ton_api = { git = 'https://github.com/open-ever/ever-tl.git', package = 'ton_api', tag = '0.4.35' }
 
 [dev-dependencies]
 log4rs = '1.2'
