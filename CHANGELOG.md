@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## Version 0.11.44
+
+- Added `AdnlNodeConfig` setters for the rest of its JSON options, so the node config can be built without JSON: `set_timeout_expire_queued_packet_sec`, and with `telemetry` `set_telemetry_peer_packets` and `set_timeout_check_packet_processing_mcs`.
+
 ## Version 0.11.43
 
 - `AdnlClient::connect` waits for the server to confirm the handshake, so a wrong

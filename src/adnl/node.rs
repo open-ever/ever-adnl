@@ -750,6 +750,25 @@ impl AdnlNodeConfig {
         }
     }
 
+    /// Set expiration timeout of queued packets, `None` sets the default
+    pub fn set_timeout_expire_queued_packet_sec(&mut self, timeout: Option<u32>) {
+        self.timeout_expire_queued_packet_sec =
+            timeout.unwrap_or(Self::DEFAULT_TIMEOUT_EXPIRE_QUEUED_PACKET_SEC)
+    }
+
+    /// Set telemetry of peer packets, `None` turns it off
+    #[cfg(feature = "telemetry")]
+    pub fn set_telemetry_peer_packets(&mut self, enabled: Option<bool>) {
+        self.telemetry_peer_packets = enabled.unwrap_or(false)
+    }
+
+    /// Set timeout of packet processing check, `None` sets the default
+    #[cfg(feature = "telemetry")]
+    pub fn set_timeout_check_packet_processing_mcs(&mut self, timeout: Option<u64>) {
+        self.timeout_check_packet_processing_mcs =
+            timeout.unwrap_or(Self::DEFAULT_TIMEOUT_CHECK_PROCESSING_MCS)
+    }
+
     fn add_key(&self, key: Arc<dyn KeyOption>, tag: usize) -> Result<Arc<KeyId>> {
         let mut ret = key.id().clone();
         let added = add_unbound_object_to_map_with_update(
